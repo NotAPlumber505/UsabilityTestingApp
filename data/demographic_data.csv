@@ -1,0 +1,14 @@
+timestamp,name,age,occupation,familiarity
+2025-03-12 20:44:41,Isa,20,Fashion Designer,Somewhat Familiar
+2025-03-12 20:44:45,Isa,20,,Somewhat Familiar
+2025-03-12 20:45:36,Isa,20,,Somewhat Familiar
+2025-03-12 20:47:55,Isa,20,,Somewhat Familiar
+2025-03-12 20:47:57,Isa,20,a,Somewhat Familiar
+2025-03-12 20:48:01,,20,a,Somewhat Familiar
+2025-03-12 20:48:07,a,20,a,
+2025-03-12 20:48:09,a,20,a,Not Familiar
+2025-03-12 20:48:31,a,20,a,Not Familiar
+2025-03-12 22:49:53,,0,a,Not Familiar
+2025-03-12 22:49:55,,1,a,Not Familiar
+2025-03-12 23:53:32,mario,20,computer scientist,Somewhat Familiar
+2025-03-12 23:53:37,mario,20,,Somewhat Familiar
