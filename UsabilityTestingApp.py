@@ -1,49 +1,93 @@
 import streamlit as st
 import pandas as pd
+import sqlite3
 import time
-import os
 import plotly.express as px
 
-# Create a folder called data in the main project folder (only create if not exists)
-DATA_FOLDER = "data"
-if not os.path.exists(DATA_FOLDER):
-    os.makedirs(DATA_FOLDER)
+# Create a SQLite database (if not already exists)
+DB_FILE = "usability_data.db"
 
-# Define CSV file paths for each part of the usability testing
-CONSENT_CSV = os.path.join(DATA_FOLDER, "consent_data.csv")
-DEMOGRAPHIC_CSV = os.path.join(DATA_FOLDER, "demographic_data.csv")
-TASK_CSV = os.path.join(DATA_FOLDER, "task_data.csv")
-EXIT_CSV = os.path.join(DATA_FOLDER, "exit_data.csv")
 
-@st.cache_data
-def load_from_csv(csv_file):
-    """
-    Load data from a CSV file and return a pandas DataFrame.
-    Uses caching to speed up subsequent reads.
-    """
-    if os.path.isfile(csv_file):
-        return pd.read_csv(csv_file)
-    else:
-        return pd.DataFrame()
+def create_connection():
+    """Create a connection to the SQLite database."""
+    conn = sqlite3.connect(DB_FILE)
+    return conn
 
-@st.cache_data
-def save_to_csv(data_dict, csv_file):
-    """
-    Save data dictionary to a CSV file, either appending to an existing file
-    or creating a new one if it doesn't exist. Caching used to prevent redundant
-    writes.
-    """
-    df_new = pd.DataFrame([data_dict])
-    if not os.path.isfile(csv_file):
-        # If CSV doesn't exist, write with headers
-        df_new.to_csv(csv_file, mode='w', header=True, index=False)
-    else:
-        # Append without writing the header
-        df_new.to_csv(csv_file, mode='a', header=False, index=False)
+
+def create_tables():
+    """Create necessary tables in the database."""
+    conn = create_connection()
+    cursor = conn.cursor()
+
+    # Create tables if they don't already exist
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS consent (
+            timestamp TEXT,
+            consent_given BOOLEAN
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS demographics (
+            timestamp TEXT,
+            name TEXT,
+            age INTEGER,
+            occupation TEXT,
+            familiarity TEXT
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            timestamp TEXT,
+            task_name TEXT,
+            success TEXT,
+            duration_seconds REAL,
+            notes TEXT
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS exit (
+            timestamp TEXT,
+            satisfaction INTEGER,
+            difficulty INTEGER,
+            open_feedback TEXT
+        )
+    ''')
+
+    conn.commit()
+    conn.close()
+
+
+def save_to_db(data_dict, table_name):
+    """Save data to the appropriate table in the database."""
+    conn = create_connection()
+    cursor = conn.cursor()
+
+    columns = ', '.join(data_dict.keys())
+    placeholders = ', '.join(['?'] * len(data_dict))
+
+    cursor.execute(f'INSERT INTO {table_name} ({columns}) VALUES ({placeholders})', tuple(data_dict.values()))
+    conn.commit()
+    conn.close()
+
+
+def load_from_db(query, limit=None):
+    """Load data from the database using a query."""
+    conn = create_connection()
+    if limit:
+        query = f"{query} LIMIT {limit}"
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
 
 
 def main():
     st.set_page_config(page_title="Usability Testing Tool", layout="wide")
+
+    # Create tables if not exist
+    create_tables()
 
     home, consent, demographics, tasks, exit, report = st.tabs(
         ["Home", "Consent", "Demographics", "Task", "Exit Questionnaire", "Report"])
@@ -81,7 +125,7 @@ def main():
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "consent_given": consent_given
                 }
-                save_to_csv(data_dict, CONSENT_CSV)
+                save_to_db(data_dict, "consent")
                 st.success("Your consent has been recorded. Thank you!")
 
     with demographics:
@@ -92,7 +136,8 @@ def main():
                 name = st.text_input("Name (optional)")
                 age = st.number_input("Age:", min_value=0, max_value=100, step=1, format="%d")
                 occupation = st.text_input("Occupation")
-                familiarity = st.selectbox("Familiarity with similar tools?",options=["", "Not Familiar", "Somewhat Familiar", "Very Familiar"])
+                familiarity = st.selectbox("Familiarity with similar tools?",
+                                           options=["", "Not Familiar", "Somewhat Familiar", "Very Familiar"])
 
             submitted = st.form_submit_button("Submit Demographics")
             if submitted:
@@ -103,10 +148,10 @@ def main():
                     "occupation": occupation,
                     "familiarity": familiarity
                 }
-                save_to_csv(data_dict, DEMOGRAPHIC_CSV)
                 if not age or not occupation or not familiarity:
                     st.warning("Please fill out the form")
                 else:
+                    save_to_db(data_dict, "demographics")
                     st.success("Demographic data saved.")
 
     with tasks:
@@ -114,8 +159,7 @@ def main():
 
         st.write("Please select a task and record your experience completing it.")
 
-        # For this template, we assume there's only one task, in project 3, we will have to include the actual tasks
-        selected_task = st.selectbox("Select Task", options=["","Task 1: Wait for User Input",
+        selected_task = st.selectbox("Select Task", options=["", "Task 1: Wait for User Input",
                                                              "Task 2: Process Data",
                                                              "Task 3: Save to Database",
                                                              "Task 4: Fetch Data from API",
@@ -126,15 +170,13 @@ def main():
                                                              "Task 9: Cache Expiry",
                                                              "Task 10: Generate Report"
                                                              ])
-        st.write("Task Description: Perform the example task in our system...")
 
-        # Track success, completion time, etc.
         if "previous_task" not in st.session_state or st.session_state["previous_task"] != selected_task:
             st.session_state["previous_task"] = selected_task
-            st.session_state["task_completed"] = False  # Reset when a new task is selected
-            st.session_state["start_time"] = None   # Reset start time when a new task is selected
+            st.session_state["task_completed"] = False
+            st.session_state["start_time"] = None
 
-        success = ""    # Default value for success
+        success = ""
 
         if selected_task:
             if not st.session_state.get("task_completed", False):
@@ -146,28 +188,22 @@ def main():
                 stop_button = st.button("Stop Task Timer")
                 if stop_button:
                     if "start_time" in st.session_state and st.session_state["start_time"] is not None:
-                        # Record task completion duration and mark task as completed
                         duration = time.time() - st.session_state["start_time"]
                         st.session_state["task_duration"] = duration
-                        st.session_state["task_completed"] = True   # Mark task as completed
+                        st.session_state["task_completed"] = True
                         st.success(f"Task completed in {duration:.2f} seconds!")
 
-                        # Reset to allow starting again immediately after stop
-                        st.session_state["start_time"] = None   # Reset start time after stopping the task
+                        # Reset after task completion
+                        st.session_state["start_time"] = None
                         st.session_state["task_completed"] = False
 
             success = st.radio("Was the task completed successfully?", ["No", "Yes", "Partial"])
             notes = st.text_area("Observer Notes")
 
-        else:
-            st.info("Please select a task.")
-
-        # Disable the "Save Task Results" button if no task is selected
         if selected_task:
             if st.button("Save Task Results"):
                 duration_val = st.session_state.get("task_duration", None)
 
-                # Only save if the task is completed
                 if not success:
                     st.warning("Please select a success status before saving.")
                 else:
@@ -178,83 +214,69 @@ def main():
                         "duration_seconds": duration_val if duration_val else "",
                         "notes": notes
                     }
-                    save_to_csv(data_dict, TASK_CSV)
+                    save_to_db(data_dict, "tasks")
                     st.success("Task data saved.")
-
-                    # Reset any stored time in session_state if you'd like
-                    if "start_time" in st.session_state:
-                        del st.session_state["start_time"]
-                    if "task_duration" in st.session_state:
-                        del st.session_state["task_duration"]
 
     with exit:
         st.header("Exit Questionnaire")
 
+        # Wrap the exit form inside `st.form()`
         with st.form("exit_form"):
-            with st.container():
-                satisfaction = st.slider("Overall Satisfaction (1=Very Low,5=Very High)", 1, 5)
-                difficulty = st.slider("Overall Difficulty (1=Very Easy,5=Very Hard)", 1, 5)
-                open_feedback = st.text_area("Additional feedback or comments:")
+            satisfaction = st.slider("Overall Satisfaction (1=Very Low,5=Very High)", 1, 5)
+            difficulty = st.slider("Overall Difficulty (1=Very Easy,5=Very Hard)", 1, 5)
+            open_feedback = st.text_area("Additional feedback or comments:")
 
+            # This button should now be inside the form
             submitted_exit = st.form_submit_button("Submit Exit Questionnaire")
-            if submitted_exit:
-                data_dict = {
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "satisfaction": satisfaction,
-                    "difficulty": difficulty,
-                    "open_feedback": open_feedback
-                }
-                save_to_csv(data_dict, EXIT_CSV)
-                st.success("Exit questionnaire data saved.")
+
+        if submitted_exit:
+            data_dict = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "satisfaction": satisfaction,
+                "difficulty": difficulty,
+                "open_feedback": open_feedback
+            }
+            save_to_db(data_dict, "exit")
+            st.success("Exit questionnaire data saved.")
 
     with report:
         st.header("Usability Report - Aggregated Results")
 
+        # Limit data to 100 rows to improve performance
         st.write("**Consent Data**")
-        consent_df = load_from_csv(CONSENT_CSV)
+        consent_df = load_from_db('SELECT * FROM consent', limit=100)
         if not consent_df.empty:
             st.dataframe(consent_df)
         else:
             st.info("No consent data available yet.")
 
         st.write("**Demographic Data**")
-        demographic_df = load_from_csv(DEMOGRAPHIC_CSV)
+        demographic_df = load_from_db('SELECT * FROM demographics', limit=100)
         if not demographic_df.empty:
             st.dataframe(demographic_df)
         else:
             st.info("No demographic data available yet.")
 
         st.write("**Task Performance Data**")
-        task_df = load_from_csv(TASK_CSV)
+        task_df = load_from_db('SELECT * FROM tasks', limit=100)
         if not task_df.empty:
             st.dataframe(task_df)
         else:
             st.info("No task data available yet.")
 
         st.write("**Exit Questionnaire Data**")
-        exit_df = load_from_csv(EXIT_CSV)
+        exit_df = load_from_db('SELECT * FROM exit', limit=100)
         if not exit_df.empty:
             st.dataframe(exit_df)
         else:
             st.info("No exit questionnaire data available yet.")
 
         if not task_df.empty:
-            # Create a bar chart of task success counts
             task_success_counts = task_df['success'].value_counts()
             fig = px.bar(task_success_counts, x=task_success_counts.index, y=task_success_counts.values,
-                         labels={'x': 'Success Status', 'y': 'Count'}, title="Task Success Counts")
-            fig.update_xaxes(tickangle=0)  # Rotate x-axis labels horizontally
+                         labels={'x': 'Success Status', 'y': 'Task Count'},
+                         title="Task Success Summary")
             st.plotly_chart(fig)
-
-            # Create success rates per task (stacked bar chart)
-            task_success_per_task = task_df.groupby('task_name')['success'].value_counts().unstack().fillna(0)
-            task_success_per_task = task_success_per_task.div(task_success_per_task.sum(axis=1), axis=0) * 100
-            fig = px.bar(task_success_per_task, x=task_success_per_task.index, y=task_success_per_task.columns,
-                         title="Success Rates per Task", labels={'x': 'Task Name', 'y': 'Percentage'})
-            fig.update_xaxes(tickangle=0)  # Rotate x-axis labels horizontally
-            st.plotly_chart(fig)
-        else:
-            st.info("No task data available yet.")
 
 
 if __name__ == "__main__":
