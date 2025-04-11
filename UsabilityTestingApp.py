@@ -44,9 +44,6 @@ def load_data(table):
     with get_connection() as conn:
         return pd.read_sql_query(f"SELECT * FROM {table}", conn)
 
-@st.cache_data
-def cached_load_data(table):
-    return load_data(table)
 
 def main():
     st.set_page_config(page_title="Usability Testing Tool", layout="wide")
