@@ -4,7 +4,7 @@ import time
 import os
 import plotly.express as px
 
-# Create a folder called data in the main project folder
+# Create a folder called data in the main project folder (only create if not exists)
 DATA_FOLDER = "data"
 if not os.path.exists(DATA_FOLDER):
     os.makedirs(DATA_FOLDER)
@@ -15,23 +15,31 @@ DEMOGRAPHIC_CSV = os.path.join(DATA_FOLDER, "demographic_data.csv")
 TASK_CSV = os.path.join(DATA_FOLDER, "task_data.csv")
 EXIT_CSV = os.path.join(DATA_FOLDER, "exit_data.csv")
 
+@st.cache_data
+def load_from_csv(csv_file):
+    """
+    Load data from a CSV file and return a pandas DataFrame.
+    Uses caching to speed up subsequent reads.
+    """
+    if os.path.isfile(csv_file):
+        return pd.read_csv(csv_file)
+    else:
+        return pd.DataFrame()
 
+@st.cache_data
 def save_to_csv(data_dict, csv_file):
-    # Convert dict to DataFrame with a single row
+    """
+    Save data dictionary to a CSV file, either appending to an existing file
+    or creating a new one if it doesn't exist. Caching used to prevent redundant
+    writes.
+    """
     df_new = pd.DataFrame([data_dict])
     if not os.path.isfile(csv_file):
         # If CSV doesn't exist, write with headers
         df_new.to_csv(csv_file, mode='w', header=True, index=False)
     else:
-        # Else, we need to append without writing the header!
+        # Append without writing the header
         df_new.to_csv(csv_file, mode='a', header=False, index=False)
-
-
-def load_from_csv(csv_file):
-    if os.path.isfile(csv_file):
-        return pd.read_csv(csv_file)
-    else:
-        return pd.DataFrame()
 
 
 def main():
